@@ -10,15 +10,70 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Repository'yi indir
+        uses: actions/checkout@v4
 
-      - run: |
-          find . -name "*.pck" -type f -printf "%f\n" | sort | jq -R -s 'split("\n") | map(select(length > 0))' > games.json
+      - name: games.json oluştur
+        run: |
+          files=$(find . -type f -name "*.pck" -not -path "./.git/*")
 
-      - run: |
+          echo "[" > games.json
+
+          first=true
+
+          for file in $files; do
+            filename=$(basename "$file")
+            id="${filename%.pck}"
+
+            size=$(stat -c%s "$file")
+            size_mb=$(awk "BEGIN {printf \"%.2f\", $size / 1048576}")
+
+            if [ "$first" = true ]; then
+              first=false
+            else
+              echo "," >> games.json
+            fi
+
+            jq -n \
+              --arg id "$id" \
+              --arg name "$id" \
+              --arg version "1.0" \
+              --arg file "$filename" \
+              --arg description "$id" \
+              --argjson size "$size" \
+              --arg size_mb "$size_mb" \
+              '{
+                id: $id,
+                name: $name,
+                version: $version,
+                file: $file,
+                size: $size,
+                size_mb: ($size_mb | tonumber),
+                description: $description
+              }' >> games.json
+          done
+
+          echo "]" >> games.json
+
+      - name: JSON kontrolü
+        run: |
+          jq empty games.json
+          echo "games.json geçerli."
+
+      - name: Git ayarları
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: games.json kaydet
+        run: |
           git add games.json
-          git diff --cached --quiet || git commit -m "Update games.json"
-          git push
+
+          if git diff --cached --quiet; then
+            echo "Değişiklik yok."
+          else
+            git commit -m "Update games.json"
+            git push
+          fi
