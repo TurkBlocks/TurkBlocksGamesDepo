@@ -1,0 +1,24 @@
+name: Update games.json
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: |
+          find . -name "*.pck" -type f -printf "%f\n" | sort | jq -R -s 'split("\n") | map(select(length > 0))' > games.json
+
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add games.json
+          git diff --cached --quiet || git commit -m "Update games.json"
+          git push
