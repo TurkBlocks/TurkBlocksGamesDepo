@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TÜRKBLOCKS OYUNU</title>
+    <style>
+        body { margin: 0; background: #080303; display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 100vh; color: #fff; font-family: system-ui, sans-serif; overflow: hidden; }
+        #game-box { position: relative; }
+        canvas { background: #1c1917; border: 3px solid #500000; border-radius: 16px; box-shadow: 0 0 30px rgba(80, 0, 0, 0.7); }
+        #hud { position: absolute; top: 14px; right: 18px; display: flex; gap: 20px; font-size: 16px; font-weight: 800; background: rgba(15, 5, 5, 0.85); padding: 8px 20px; border-radius: 14px; border: 1px solid #800000; backdrop-filter: blur(8px); }
+        .hud-item { display: flex; align-items: center; gap: 6px; }
+        #modal { position: absolute; inset: 0; background: rgba(0,0,0,0.85); display: flex; flex-direction: column; justify-content: center; align-items: center; border-radius: 16px; text-align: center; }
+        .hidden { display: none !important; }
+        button { background: #500000; color: white; border: 1px solid #a01010; padding: 10px 24px; border-radius: 10px; font-weight: bold; cursor: pointer; margin-top: 12px; }
+        button:hover { background: #800000; }
+        #brand { margin-top: 14px; font-size: 11px; font-weight: 800; color: #a01010; letter-spacing: 1px; }
+    </style>
+</head>
+<body>
+    <div id="game-box">
+        <canvas id="canvas" width="850" height="480"></canvas>
+        <div id="hud">
+            <div class="hud-item" style="color: #f43f5e;">CAN: <span id="health">3</span></div>
+            <div class="hud-item" style="color: #fbbf24;">SKOR: <span id="score">0</span></div>
+        </div>
+        <div id="modal" class="hidden">
+            <h2 id="modal-title" style="font-size: 24px; margin: 0;"></h2>
+            <p id="modal-sub" style="color: #cbd5e1; font-size: 13px;"></p>
+            <button onclick="location.reload()">Yeniden Oyna</button>
+        </div>
+    </div>
+    <div id="brand">HAZIRLAYAN: TÜRKBLOCKS STUDIO v1.0</div>
+
+    <script>
+        let objects = [{"id":"obj_1","name":"Ana Kahraman","tag":"Oyuncu","x":555,"y":172,"width":38,"height":38,"color":"#e11d48","assetImageId":"","speed":5,"gravity":true,"vx":0,"vy":0,"isGrounded":true},{"id":"obj_2","name":"Zemin Ana Platform","tag":"Zemin","x":20,"y":390,"width":1400,"height":35,"color":"#10b981","assetImageId":"","speed":0,"gravity":false},{"id":"obj_3","name":"Yüksek Platform 1","tag":"Zemin","x":260,"y":290,"width":150,"height":20,"color":"#10b981","assetImageId":"","speed":0,"gravity":false},{"id":"obj_4","name":"Yüksek Platform 2","tag":"Zemin","x":500,"y":210,"width":150,"height":20,"color":"#10b981","assetImageId":"","speed":0,"gravity":false},{"id":"obj_7","name":"Devriye Düşman","tag":"Düşman","x":292,"y":350,"width":36,"height":40,"color":"#9333ea","assetImageId":"","speed":2,"gravity":false,"direction":-1},{"id":"obj_8","name":"Tehlikeli Diken","tag":"Diken","x":440,"y":365,"width":30,"height":25,"color":"#f97316","assetImageId":"","speed":0,"gravity":false},{"id":"obj_9","name":"Zıplama Yaylı Ped","tag":"ZıplamaPedi","x":670,"y":370,"width":35,"height":20,"color":"#a855f7","assetImageId":"","speed":0,"gravity":false},{"id":"obj_10","name":"Bitiş Bayrağı","tag":"Bayrak","x":1280,"y":310,"width":32,"height":80,"color":"#06b6d4","assetImageId":"","speed":0,"gravity":false}];
+        let rules = [{"id":"rule_1","event":"onKey","keyGroup":"SAĞ (D / ArrowRight)","action":"move","targetTag":"Oyuncu","param":5,"direction":"right"},{"id":"rule_2","event":"onKey","keyGroup":"SOL (A / ArrowLeft)","action":"move","targetTag":"Oyuncu","param":5,"direction":"left"},{"id":"rule_3","event":"onKey","keyGroup":"ZIPLA (W / ArrowUp / Space)","action":"jump","targetTag":"Oyuncu","param":11,"direction":"up"},{"id":"rule_4","event":"onCollide","sourceTag":"Oyuncu","targetTag":"Altın","action":"collect","param":10},{"id":"rule_5","event":"onCollide","sourceTag":"Oyuncu","targetTag":"Düşman","action":"hurt","param":1},{"id":"rule_6","event":"onCollide","sourceTag":"Oyuncu","targetTag":"Diken","action":"restart"},{"id":"rule_7","event":"onCollide","sourceTag":"Oyuncu","targetTag":"ZıplamaPedi","action":"bounce","param":15},{"id":"rule_8","event":"onCollide","sourceTag":"Oyuncu","targetTag":"Bayrak","action":"win"}];
+        let assetImages = {};
+        let assetAudios = {};
+
+        let score = 0;
+        let health = 3;
+        let cameraX = 0;
+        let isGameOver = false;
+
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const keys = {};
+
+        const loadedImages = {};
+        Object.keys(assetImages).forEach(id => {
+            const img = new Image();
+            img.src = assetImages[id].src;
+            loadedImages[id] = img;
+        });
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        function playSound(typeOrSrc) {
+            try {
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+                if (assetAudios[typeOrSrc]) {
+                    const a = new Audio(assetAudios[typeOrSrc].src);
+                    a.play().catch(e => {});
+                    return;
+                }
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain); gain.connect(audioCtx.destination);
+                if (typeOrSrc === 'jump') {
+                    osc.frequency.setValueAtTime(140, audioCtx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(450, audioCtx.currentTime + 0.15);
+                    gain.gain.setValueAtTime(0.25, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.15);
+                    osc.start(); osc.stop(audioCtx.currentTime + 0.15);
+                } else if (typeOrSrc === 'collect') {
+                    osc.frequency.setValueAtTime(523.25, audioCtx.currentTime);
+                    osc.frequency.setValueAtTime(659.25, audioCtx.currentTime + 0.08);
+                    gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+                    osc.start(); osc.stop(audioCtx.currentTime + 0.2);
+                } else if (typeOrSrc === 'win') {
+                    osc.frequency.setValueAtTime(440, audioCtx.currentTime);
+                    osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.2);
+                    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.4);
+                    osc.start(); osc.stop(audioCtx.currentTime + 0.4);
+                } else if (typeOrSrc === 'hurt') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(220, audioCtx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(70, audioCtx.currentTime + 0.25);
+                    gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.25);
+                    osc.start(); osc.stop(audioCtx.currentTime + 0.25);
+                }
+            } catch(e) {}
+        }
+
+        window.addEventListener('keydown', e => { keys[e.key] = true; keys[e.key.toLowerCase()] = true; });
+        window.addEventListener('keyup', e => { keys[e.key] = false; keys[e.key.toLowerCase()] = false; });
+
+        function checkAABB(a, b) {
+            return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+        }
+
+        function showModal(title, sub) {
+            isGameOver = true;
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-sub').innerText = sub;
+            document.getElementById('modal').classList.remove('hidden');
+        }
+
+        function update() {
+            if (isGameOver) return;
+
+            const player = objects.find(o => o.tag === 'Oyuncu');
+            if (player) {
+                cameraX = player.x - canvas.width / 2 + player.width / 2;
+                if (cameraX < 0) cameraX = 0;
+            }
+
+            objects.forEach(obj => {
+                if (obj.gravity) {
+                    obj.vy = (obj.vy || 0) + 0.5;
+                    obj.y += obj.vy;
+                    obj.isGrounded = false;
+                    objects.forEach(other => {
+                        if (other.id !== obj.id && other.tag === 'Zemin') {
+                            if (checkAABB(obj, other)) {
+                                if (obj.vy > 0 && (obj.y + obj.height - obj.vy) <= other.y + 12) {
+                                    obj.y = other.y - obj.height;
+                                    obj.vy = 0;
+                                    obj.isGrounded = true;
+                                }
+                            }
+                        }
+                    });
+                }
+                if (obj.tag === 'Düşman') {
+                    obj.x += (obj.speed || 2) * (obj.direction || 1);
+                    if (obj.x > 1400 || obj.x < 0) obj.direction = (obj.direction || 1) * -1;
+                }
+            });
+
+            rules.forEach(rule => {
+                if (rule.event === 'onKey') {
+                    let isPressed = false;
+                    if (rule.keyGroup.includes('SAĞ') && (keys['d'] || keys['D'] || keys['ArrowRight'])) isPressed = true;
+                    if (rule.keyGroup.includes('SOL') && (keys['a'] || keys['A'] || keys['ArrowLeft'])) isPressed = true;
+                    if (rule.keyGroup.includes('AŞAĞI') && (keys['s'] || keys['S'] || keys['ArrowDown'])) isPressed = true;
+                    if (rule.keyGroup.includes('ZIPLA') && (keys['w'] || keys['W'] || keys['ArrowUp'] || keys[' '])) isPressed = true;
+
+                    if (isPressed) {
+                        objects.filter(o => o.tag === rule.targetTag).forEach(obj => {
+                            if (rule.action === 'move') {
+                                if (rule.direction === 'right') obj.x += rule.param;
+                                if (rule.direction === 'left') obj.x -= rule.param;
+                                if (rule.direction === 'down') obj.y += rule.param;
+                                if (rule.direction === 'up') obj.y -= rule.param;
+                            } else if (rule.action === 'jump' && obj.isGrounded) {
+                                obj.vy = -rule.param;
+                                obj.isGrounded = false;
+                                playSound('jump');
+                            }
+                        });
+                    }
+                } else if (rule.event === 'onCollide') {
+                    objects.filter(o => o.tag === rule.sourceTag).forEach(src => {
+                        objects.filter(o => o.tag === rule.targetTag).forEach(tgt => {
+                            if (checkAABB(src, tgt)) {
+                                if (rule.action === 'collect') {
+                                    objects = objects.filter(o => o.id !== tgt.id);
+                                    score += Number(rule.param || 10);
+                                    document.getElementById('score').innerText = score;
+                                    playSound('collect');
+                                } else if (rule.action === 'bounce') {
+                                    src.vy = -Number(rule.param || 15);
+                                    src.isGrounded = false;
+                                    playSound('jump');
+                                } else if (rule.action === 'hurt') {
+                                    health -= Number(rule.param || 1);
+                                    document.getElementById('health').innerText = health;
+                                    playSound('hurt');
+                                    src.x -= 35;
+                                    if (health <= 0) showModal('OYUN BİTTİ', 'Tüm canlarınızı kaybettiniz.');
+                                } else if (rule.action === 'restart') {
+                                    playSound('hurt');
+                                    location.reload();
+                                } else if (rule.action === 'win') {
+                                    playSound('win');
+                                    showModal('TEBRİKLER!', 'Kazanma bayrağına başarıyla ulaştınız.');
+                                }
+                            }
+                        });
+                    });
+                }
+            });
+        }
+
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.save();
+            ctx.translate(-cameraX, 0);
+
+            objects.forEach(obj => {
+                ctx.fillStyle = obj.color || '#500000';
+
+                if (obj.assetImageId && loadedImages[obj.assetImageId]) {
+                    ctx.drawImage(loadedImages[obj.assetImageId], obj.x, obj.y, obj.width, obj.height);
+                } else if (obj.tag === 'Metin') {
+                    ctx.font = `bold ${obj.height || 22}px sans-serif`;
+                    ctx.fillText(obj.name, obj.x, obj.y + obj.height);
+                } else if (obj.tag === 'Diken') {
+                    ctx.beginPath();
+                    ctx.moveTo(obj.x, obj.y + obj.height);
+                    ctx.lineTo(obj.x + obj.width / 2, obj.y);
+                    ctx.lineTo(obj.x + obj.width, obj.y + obj.height);
+                    ctx.closePath();
+                    ctx.fill();
+                } else if (obj.tag === 'Bayrak') {
+                    ctx.fillStyle = '#cbd5e1'; ctx.fillRect(obj.x, obj.y, 6, obj.height);
+                    ctx.fillStyle = '#06b6d4'; ctx.beginPath(); ctx.moveTo(obj.x + 6, obj.y); ctx.lineTo(obj.x + obj.width, obj.y + 15); ctx.lineTo(obj.x + 6, obj.y + 30); ctx.closePath(); ctx.fill();
+                } else {
+                    ctx.beginPath();
+                    ctx.roundRect(obj.x, obj.y, obj.width, obj.height, 6);
+                    ctx.fill();
+                }
+            });
+
+            ctx.restore();
+        }
+
+        function loop() {
+            update();
+            render();
+            requestAnimationFrame(loop);
+        }
+        loop();
+    </script>
+</body>
+</html>
