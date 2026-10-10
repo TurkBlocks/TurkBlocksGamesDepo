@@ -1,7 +1,12 @@
+
 name: Update games.json
 
 on:
   push:
+    paths:
+      - "*.html"
+      - "games.json"
+      - ".github/workflows/update-games.yml"
   workflow_dispatch:
 
 permissions:
@@ -16,30 +21,24 @@ jobs:
         uses: actions/checkout@v4
 
       - name: games.json oluştur
+        shell: bash
         run: |
-          files=$(find . -type f -name "*.pck" -not -path "./.git/*")
+          set -euo pipefail
 
-          echo "[" > games.json
+          tmp="$(mktemp)"
 
-          first=true
+          while IFS= read -r -d '' file; do
+            filename="${file#./}"
+            id="${filename%.html}"
 
-          for file in $files; do
-            filename=$(basename "$file")
-            id="${filename%.pck}"
-
-            size=$(stat -c%s "$file")
-            size_mb=$(awk "BEGIN {printf \"%.2f\", $size / 1048576}")
-
-            if [ "$first" = true ]; then
-              first=false
-            else
-              echo "," >> games.json
-            fi
+            size="$(stat -c%s "$file")"
+            size_mb="$(awk "BEGIN {printf \"%.2f\", $size / 1048576}")"
 
             jq -n \
               --arg id "$id" \
               --arg name "$id" \
               --arg version "1.0" \
+              --arg url "$filename" \
               --arg file "$filename" \
               --arg description "$id" \
               --argjson size "$size" \
@@ -48,19 +47,20 @@ jobs:
                 id: $id,
                 name: $name,
                 version: $version,
+                url: $url,
                 file: $file,
                 size: $size,
                 size_mb: ($size_mb | tonumber),
                 description: $description
-              }' >> games.json
-          done
+              }' >> "$tmp"
 
-          echo "]" >> games.json
+          done < <(find . -maxdepth 1 -type f -name "*.html" -print0 | sort -z)
+
+          jq -s '{games: .}' "$tmp" > games.json
+          rm "$tmp"
 
       - name: JSON kontrolü
-        run: |
-          jq empty games.json
-          echo "games.json geçerli."
+        run: jq empty games.json
 
       - name: Git ayarları
         run: |
